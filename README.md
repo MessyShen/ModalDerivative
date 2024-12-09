@@ -35,4 +35,10 @@ By default, we use StVK with Youngs Modulus 5000, Possion Ratio 0.4 and density 
 ![Example1](./figs/Example1_LMA.png)
 ![Example2](./figs/Example2_MD.png)
 
-To export, click "Export Modes" button.
+
+### Notice
+
+* If ``lma_j <= 0`` and ``lma_i >= 1``, LMA modes are visualized.
+* If ``lma_j >= lma_i >= 1``, MD modes are shown.
+* Since modes are not normalized, you may need to adjust the `show_scale` parameter to achieve appropriate visualization results. Always click ``Visualize Modes`` after adjustments.
+* To export, click ``Export Modes`` button. ``Export Path`` needs to be a directory.
