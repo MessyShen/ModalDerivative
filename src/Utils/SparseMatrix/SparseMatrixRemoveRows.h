@@ -12,10 +12,10 @@ void subSparseMatrix(SparseMatrix<double> &source, SparseMatrix<double> &result,
 void SparseMatrixRemoveRows(SparseMatrix<double>* sparseMatrix, SparseMatrix<double>* resultMatrix, std::vector<int>& entry_map, int r, int numConstrainedDOFs_, int* constrainedDOFs_)
 ;
 
-void VectorRemoveRows(std::vector<int> &map, VectorXd &target, VectorXd &result, int numConstrainedDOFs_ = NULL, int* constrainedDOFs_ = NULL)
+void VectorRemoveRows(std::vector<int> &map, VectorXd &target, VectorXd &result, int numConstrainedDOFs_ = 0, int* constrainedDOFs_ = NULL)
 ;
 
-void VectorInsertRows(std::vector<int> &map, VectorXd &target, VectorXd &result, int numConstrainedDOFs_ = NULL, int* constrainedDOFs_ = NULL)
+void VectorInsertRows(std::vector<int> &map, VectorXd &target, VectorXd &result, int numConstrainedDOFs_ = 0, int* constrainedDOFs_ = NULL)
 ;
 
 void MatrixRemoveDofs(std::vector<int> &map, MatrixXd& target,MatrixXd &result);

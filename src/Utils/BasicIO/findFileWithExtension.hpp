@@ -7,7 +7,8 @@ std::string findFileWithExtension(const fs::path &directory, const std::string &
 {
   if (!fs::exists(directory) || !fs::is_directory(directory))
   {
-    throw std::runtime_error("Invalid directory: " + directory.string());
+    std::cerr << "Invalid directory: " << directory.string() << std::endl;
+    return "";
   }
 
   for (const auto &entry : fs::directory_iterator(directory))
@@ -23,7 +24,7 @@ std::string findFileWithExtension(const fs::path &directory, const std::string &
     }
   }
 
-
-  throw std::runtime_error("File with extension " + extension + " not found in directory: " + directory.string());
+  std::cerr << "File with extension " << extension << " not found in directory: " << directory.string() << std::endl;
+  return "";
 }
 

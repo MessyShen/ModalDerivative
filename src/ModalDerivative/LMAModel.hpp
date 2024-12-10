@@ -29,6 +29,7 @@ namespace Lobo
                                                 Eigen::VectorXd &target,
                                                 std::vector<int> &rmap);
         void solveLMA();
+        void solveUnconstrainedMD();
         void solvePCA();
         void exportModes(const std::string &filePath);
         void exampleLoadModes(const std::string &filePath);
@@ -55,12 +56,13 @@ namespace Lobo
         Eigen::SparseMatrix<double> stiffness_matrix_topology;
         HyperelasticModel *hyperelasticModel;
         LoboTetMesh *tetMesh;
+        double mesh_total_mass = 1.0;
 
     protected:
         // acceleration indices
-        int **row_;
-        int **column_;
-        int *diagonal_;
+        int **row_ = NULL;
+        int **column_ = NULL;
+        int *diagonal_ = NULL;
     };
 
 }

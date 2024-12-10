@@ -9,11 +9,13 @@ list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # Libigl
 include(libigl)
 
+
+igl_include(core)
 # Enable the target igl::glfw
-igl_include(glfw)
+# igl_include(glfw)
 # Other modules you could enable
 #igl_include(embree)
-igl_include(imgui)
+# igl_include(imgui)
 #igl_include(opengl)
 #igl_include(stb)
 #igl_include(predicates)
@@ -62,10 +64,11 @@ target_include_directories(${PROJECT_NAME}_dev PUBLIC
 
 # Link igl (and the glfw module) to your project
 target_link_libraries(${PROJECT_NAME}_dev PUBLIC 
-  igl::glfw
+    igl::core
+#   igl::glfw
   ## Other modules you could link to
   # igl::embree
-  igl::imgui
+#   igl::imgui
   # igl::opengl
   # igl::stb
   # igl::predicates
@@ -80,10 +83,10 @@ target_link_libraries(${PROJECT_NAME}_dev PUBLIC
   # igl_restricted::triangle
 )
 
+
 # Spectra
 set(SPECTRA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/spectra-0.8.1/include)
 target_include_directories(${PROJECT_NAME}_dev PUBLIC ${SPECTRA_ROOT})
-
 
 
 add_executable(${PROJECT_NAME}_bin "src/main.cpp")

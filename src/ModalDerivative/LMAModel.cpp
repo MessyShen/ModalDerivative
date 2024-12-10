@@ -31,6 +31,8 @@ void Lobo::LMAModel::init(LoboTetMesh *_tetMesh,
   // hyperelasticModel->precompute();
 
   tetMesh->computeDiagMassMatrix(&mass_matrix);
+  mesh_total_mass = mass_matrix.sum(); 
+  std::cout << "total mass" << mass_matrix.sum() << std::endl;
 
   hyperelasticModel->computeStiffnessMatrixTopology(
       &stiffness_matrix_topology);
@@ -100,6 +102,155 @@ void Lobo::LMAModel::SetConstraineddisplacementFromFull(
   }
 }
 
+void Lobo ::LMAModel::solveUnconstrainedMD() {
+  LMAPsi.clear();
+  MDPhi.clear();
+  ExtensionBasis.clear();
+
+  bool unconstrained = (constrained_num == 0);
+
+  Eigen::SparseMatrix<double> *hessian = &stiffness_matrix_topology;
+
+  int numMode = modeDim;
+  int numModeBegin = 0;
+  if (unconstrained)
+  {
+    numModeBegin = 6;
+    numMode += 6;
+  }
+
+  Eigen::SparseMatrix<double> subStiffness, subMassMatrix;
+  std::vector<int> consMap, invMap;
+
+  int sub_size = num_DOFs - constrained_num;
+  subDOFs = sub_size;
+  subStiffness.resize(sub_size, sub_size);
+  subMassMatrix.resize(sub_size, sub_size);
+
+  createReverseMapByConstrains(consMap, invMap, num_DOFs, constrained_num,
+                               constraints);
+
+  Eigen::VectorXd zeroDis;
+  zeroDis.resize(num_DOFs);
+  zeroDis.setZero();
+  stiffnessAtDisplacement(&zeroDis, hessian);
+
+  std::cout << "subSparseMatrix..." << std::endl;
+
+  subSparseMatrix(*hessian, subStiffness, consMap);
+  subSparseMatrix(mass_matrix, subMassMatrix, consMap);
+
+  // Eigen::MatrixXd Adense = subStiffness;
+  double shift = -0.000001;
+  Eigen::SparseMatrix<double> K = subStiffness - shift * subMassMatrix;
+  Spectra::SparseSymMatProd<double> Aop(subMassMatrix);
+  Spectra::SparseCholesky<double> Bop(K);
+
+  std::cout << "Init GEigs..." << std::endl;
+  Spectra::SymGEigsSolver<double, Spectra::LARGEST_MAGN,
+                          // Spectra::DenseSymMatProd<double>,
+                          Spectra::SparseSymMatProd<double>,
+                          Spectra::SparseCholesky<double>,
+                          Spectra::GEIGS_CHOLESKY>
+      geigs(&Aop, &Bop, numMode, numMode * 5);
+
+  geigs.init();
+
+  std::cout << "solving GEigs..." << std::endl;
+  int nconv = geigs.compute();
+
+  std::cout << "converge eige" << nconv << std::endl;
+
+  Eigen::VectorXd evalues;
+  Eigen::MatrixXd evecs;
+  if (geigs.info() == Spectra::SUCCESSFUL)
+  {
+    evalues = geigs.eigenvalues();
+    evecs = geigs.eigenvectors();
+  }
+  for (int i = 0; i < numMode; ++i)
+  {
+    evalues(i) = 1.0 / (evalues(i) - shift);
+    double evec_mass_norm = evecs.col(i).dot(subMassMatrix * evecs.col(i));
+    evecs.col(i) = evecs.col(i) / sqrt(evec_mass_norm);
+  }
+
+  // LMAphi = evecs;
+  std::cout << "evalues\n"
+            << evalues << std::endl;
+
+
+  for (int numID = numModeBegin; numID < numMode; ++numID)
+  {
+    std::cout << "eigenvector " << numID << std::endl;
+    Eigen::VectorXd phi1 = evecs.col(numID);
+    Eigen::VectorXd fullphi1;
+    fullphi1.setZero();
+    phi1 = evalues[numModeBegin] / evalues[numID] * phi1;
+
+    double norm_phi1 = phi1.dot(subMassMatrix * phi1);
+    phi1 = phi1 / sqrt(norm_phi1);
+
+    SetFulldisplacementFromConstrained(phi1, fullphi1, invMap);
+    LMAPsi.push_back(fullphi1);
+  }
+
+
+  Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> LDLT;
+  Eigen::MatrixXd reduce_stiffness = evecs.transpose() * subStiffness * evecs;
+  LDLT.compute(subStiffness);
+
+   int count_md = 0;
+  for (int i = numModeBegin; i < numMode; ++i)
+  {
+    for (int j = i; j < numMode; ++j)
+    {
+      count_md += 1;
+
+      Eigen::SparseMatrix<double> K_i;
+      K_i.resize(sub_size, sub_size);
+
+      Eigen::VectorXd PSI_i = evecs.col(i);
+      Eigen::VectorXd PSI_j = evecs.col(j);
+      PSI_i = PSI_i / (PSI_i.dot(PSI_i));
+      PSI_j = PSI_j / (PSI_j.dot(PSI_j));
+
+      Eigen::VectorXd fullPSI_i, scaled_fullPSI_i;
+      SetFulldisplacementFromConstrained(PSI_i, fullPSI_i, invMap);
+      scaled_fullPSI_i = scaleCoef * fullPSI_i;
+      // fullPSI_i.setZero();
+      stiffnessAtDisplacement(&scaled_fullPSI_i, hessian);
+      subSparseMatrix(*hessian, K_i, consMap);
+      Eigen::VectorXd rhs = K_i * PSI_j;
+      Eigen::VectorXd PSI_ij = LDLT.solve(rhs);
+      PSI_ij = (PSI_j - PSI_ij) / scaleCoef;
+
+      PSI_ij = evalues[numModeBegin] * evalues[numModeBegin] /
+               evalues[i] / evalues[j] * PSI_ij;
+
+      double norm_psi_ij = PSI_ij.dot(subMassMatrix * PSI_ij);
+      PSI_ij = PSI_ij / sqrt(norm_psi_ij);
+
+      std::cout << "norm_psi_ij  " << norm_psi_ij << std::endl;
+
+      Eigen::VectorXd fullPSI_ij;
+      fullPSI_ij.setZero();
+      SetFulldisplacementFromConstrained(PSI_ij, fullPSI_ij, invMap);
+
+      // Eigen::MatrixXd dense_Ki = K_i;
+      // std::cout << dense_Ki << std::endl;
+
+      std::cout << i << " " << j << "ID: count_md" << count_md << std::endl;
+
+      MDPhi.push_back(fullPSI_ij);
+      /*for (int p = 0; p < fullPSI_ij.size(); ++p) {
+        std::cout << fullPSI_ij[p] << " ";
+      }
+      std::cout << "\n\n\n\n\n";*/
+    }
+  }
+
+}
 void Lobo::LMAModel::solveLMA()
 {
   Eigen::SparseMatrix<double> *hessian = &stiffness_matrix_topology;
@@ -279,7 +430,7 @@ void Lobo::LMAModel::solveLMA()
 
       double norm_psi_ij = PSI_ij.dot(subMassMatrix * PSI_ij);
       PSI_ij = PSI_ij / sqrt(norm_psi_ij);
-      norm_psi_ij = PSI_ij.dot(subMassMatrix * PSI_ij);
+      // norm_psi_ij = PSI_ij.dot(subMassMatrix * PSI_ij);
 
       PSI_ij = evalues[0] * evalues[0] /
                evalues[i] / evalues[j] * PSI_ij;
@@ -312,7 +463,7 @@ void Lobo::LMAModel::solvePCA()
   return;
 }
 
-Eigen::MatrixXd Lobo::LMAModel::visualizeModes(int lma_i, int lma_j, double scaleCoef)
+Eigen::MatrixXd Lobo::LMAModel::visualizeModes(int lma_i, int lma_j, double visScaleCoef)
 {
   Eigen::VectorXd shift;
   shift = LMAPsi[0];
@@ -349,7 +500,7 @@ Eigen::MatrixXd Lobo::LMAModel::visualizeModes(int lma_i, int lma_j, double scal
   //  int numNode = kineticmodel->modeDim;
   //  shift = kineticmodel->ExtensionBasis[numNode * (lma_i - 1) + lma_j];
   //}
-  Eigen::MatrixXd shiftMat = scaleCoef * Lobo::eigen_vec_2_mat(shift, tetMesh->getNumVertex(), 3);
+  Eigen::MatrixXd shiftMat = visScaleCoef * Lobo::eigen_vec_2_mat(shift, tetMesh->getNumVertex(), 3);
   
   return shiftMat;
 }
@@ -360,8 +511,8 @@ void Lobo::LMAModel::exportModes(const std::string &filePath)
   if (!std::filesystem::exists(filePath))
     std::filesystem::create_directories(filePath);
   // export LMA modes and MD modes
-  std::ofstream lma_file(filePath + "/LMAphi.bin", std::ios::binary);
-  std::ofstream md_file(filePath + "/MDPhi.bin", std::ios::binary);
+  std::ofstream lma_file(filePath + "/LMApsi.bin", std::ios::binary);
+  std::ofstream md_file(filePath + "/MDphi.bin", std::ios::binary);
   EigenMatrixIO::write_vector_eigen(lma_file, LMAPsi);
   EigenMatrixIO::write_vector_eigen(md_file, MDPhi);
   lma_file.close();
@@ -375,8 +526,8 @@ void Lobo::LMAModel::exportModes(const std::string &filePath)
 void Lobo::LMAModel::exampleLoadModes(const std::string &filePath)
 {
   // load LMA and MD modes
-  std::string lma_file(filePath + "/LMAphi.bin");
-  std::string md_file(filePath + "/MDPhi.bin");
+  std::string lma_file(filePath + "/LMApsi.bin");
+  std::string md_file(filePath + "/MDphi.bin");
   std::vector<Eigen::VectorXd> example_LMAPsi, example_MDPhi;
   EigenMatrixIO::read_vector_eigen(lma_file.c_str(), example_LMAPsi);
   EigenMatrixIO::read_vector_eigen(md_file.c_str(), example_MDPhi); 

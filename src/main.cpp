@@ -1,9 +1,3 @@
-#include <igl/readOFF.h>
-#include <igl/opengl/glfw/Viewer.h>
-#include <igl/opengl/glfw/imgui/ImGuiPlugin.h>
-#include <igl/opengl/glfw/imgui/ImGuiMenu.h>
-#include <igl/opengl/glfw/imgui/ImGuiHelpers.h>
-#include <igl/opengl/glfw/Viewer.h>
 #include "Utils/BasicIO/readEleNode.hpp"
 #include "Utils/BasicIO/findFileWithExtension.hpp"
 #include "ModalDerivative/LMAModel.hpp"
@@ -28,7 +22,8 @@ int main(int argc, char *argv[])
   std::string materialType = "StVK";
   double youngsModulus = 5000;
   double possionRatio = 0.4;
-  double density = 20.0;
+  double density = 1.0;
+  int numModes = 5;
 
   for (int i = 2; i < argc; ++i)
   {
@@ -58,22 +53,18 @@ int main(int argc, char *argv[])
     {
       density = std::stod(argv[++i]);
     }
+    else if (arg == "--numModes" && i + 1 < argc)
+    {
+      numModes = std::stod(argv[++i]);
+    }
   }
 
   std::vector<std::string> extensions = {".ele", ".node", ".constrainedDoFs"};
   std::string eleFile, nodeFile, consFile, stiffFile, massFile;
 
-  try
-  {
-    eleFile = findFileWithExtension(directory, extensions[0]);
-    nodeFile = findFileWithExtension(directory, extensions[1]);
-    consFile = findFileWithExtension(directory, extensions[2]);
-  }
-  catch (const std::exception &e)
-  {
-    std::cerr << e.what() << std::endl;
-    return 1;
-  }
+  eleFile = findFileWithExtension(directory, extensions[0]);
+  nodeFile = findFileWithExtension(directory, extensions[1]);
+  consFile = findFileWithExtension(directory, extensions[2]);
 
   Eigen::MatrixXd V;
   Eigen::MatrixXi T;
@@ -83,89 +74,25 @@ int main(int argc, char *argv[])
 
   correct_face_order(V, T);
 
-  Eigen::MatrixXi F;
-  igl::boundary_facets(T, F);
-
   
   Lobo::LMAModel lma_model;
-  lma_model.loadConstraints(consFile);
+  if (consFile.empty()) {
+    std::cout << "Warning: constrainedDoFs file not found." << std::endl;
+  } else {
+    lma_model.loadConstraints(consFile);
+  }
+
+  lma_model.modeDim = numModes;
   
   Lobo::LoboTetMesh *tetMesh = new Lobo::LoboTetMesh();
   tetMesh->setTetraheralMesh(V, T);
   tetMesh->computeDiagMassMatrix(&lma_model.mass_matrix);
   lma_model.init(tetMesh, materialType, youngsModulus, possionRatio, density);
   int lma_i = 1, lma_j = 1;
-  float show_scale = 0.01;
-  // lma_model.solveLMA();
 
-  // Plot the mesh
-  igl::opengl::glfw::Viewer viewer;
+  std::string fileDialogResult = directory.string() + "/export";
+  lma_model.solveUnconstrainedMD();
+  lma_model.exportModes(fileDialogResult);
+  std::cout << "Please see LMAModel::exampleLoadModes(const std::string &filePath)" << std::endl;
 
-  // Attach a menu plugin
-  igl::opengl::glfw::imgui::ImGuiPlugin plugin;
-  viewer.plugins.push_back(&plugin);
-  igl::opengl::glfw::imgui::ImGuiMenu menu;
-  plugin.widgets.push_back(&menu);
-
-  // Customize the menu
-  double doubleVariable = 0.1f; // Shared between two menus
-
-  // Add content to the default menu window
-  menu.callback_draw_viewer_menu = [&]()
-  {
-    // Draw parent menu content
-    menu.draw_viewer_menu();
-  };
-
-  // Draw additional windows
-  menu.callback_draw_custom_window = [&]()
-  {
-    // Define next window position + size
-    ImGui::SetNextWindowPos(ImVec2(180.f * menu.menu_scaling(), 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 500), ImGuiCond_FirstUseEver);
-    ImGui::Begin(
-        "Modal Derivative", nullptr,
-        ImGuiWindowFlags_NoSavedSettings);
-
-    ImGui::InputInt("Num Modes", &lma_model.modeDim);
-    if (ImGui::Button("Solve Modal Derivative")) {
-      lma_model.solveLMA();
-    }
-
-    ImGui::InputInt("lma_i", &lma_i, 1, 5);
-    ImGui::InputInt("lma_j", &lma_j, 1, 5);
-    ImGui::InputFloat("show_scale", &show_scale, 0.01f, 1.0f,
-                      "%.7f");
-    if (ImGui::Button("Visualize Modes")) {
-      if (lma_model.LMAPsi.size() == 0) {
-        std::cout << "Solving MD because it is empty." << std::endl;
-        lma_model.solveLMA();
-      }
-      Eigen::MatrixXd shiftMat = lma_model.visualizeModes(lma_i, lma_j, show_scale);
-      viewer.data().clear();
-      viewer.data().set_mesh(V + shiftMat, F);
-      viewer.data().set_face_based(true);
-    }
-
-    ImGui::Separator();
-
-    std::string fileDialogResult = directory.string() + "/export";
-    ImGui::InputText("Export Path", fileDialogResult);
-    
-    if (ImGui::Button("Export Modes")) {
-      lma_model.exportModes(fileDialogResult);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Example Load")) {
-      std::cout << "=========Example Load========" << std::endl;
-      std::cout << "Please see LMAModel::exampleLoadModes(const std::string &filePath)" << std::endl;
-      lma_model.exampleLoadModes(fileDialogResult);
-    }
-
-    ImGui::End();
-  };
-
-  viewer.data().set_mesh(V, F);
-  viewer.data().set_face_based(true);
-  viewer.launch();
 }

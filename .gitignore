@@ -1,3 +1,7 @@
+.vscode
+
+input/*/export/*
+
 # Compiled Object files
 *.slo
 *.lo
